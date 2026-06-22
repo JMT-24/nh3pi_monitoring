@@ -40,7 +40,7 @@ def main():
 				"temperature": round(temp_sensor.get_temperature(), 2),
 				"ph_raw": average_raw(channel=0),
 				"nh3_raw": average_raw(channel=2),
-				"timestampe": datatime.now().isoformat()
+				"timestamp": datetime.now().isoformat()
 			}
 			print(f"[SEND] {payload}")
 

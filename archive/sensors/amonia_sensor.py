@@ -28,6 +28,7 @@ def read_mcp3008(channel):
 
 def read_nh3():
 	total = 0
+	ratio = 0
 	for _ in range(NUM_SAMPLES):
 		total += read_mcp3008(NH3_CHANNEL)
 		time.sleep(SAMPLE_DELAY)
@@ -39,7 +40,7 @@ def read_nh3():
 		return avg_raw, voltage, None, None
 
 	rs = ((VREF - voltage) / voltage) * RL
-	ration * rs / RO
+	ratio * rs / RO
 
 	ppm = A * (ratio ** B)
 	ppm = max(0.0, ppm)
