@@ -128,6 +128,7 @@ def run_monitor(spi):
 
 
 def main():
+    global VREF
     ap = argparse.ArgumentParser(description="MCP3008 + MQ137 NH3 connection test")
     ap.add_argument("--scan", action="store_true", help="sweep all 8 ADC channels once")
     ap.add_argument("--warmup", action="store_true", help="65s MQ137 warm-up before reading")
@@ -135,8 +136,6 @@ def main():
                     help="ADC reference voltage = the chip's VDD rail (3.3 or 5.0). "
                          "Use 3.3 if you wired VDD/VREF to the 3.3V pin. Default %(default)s")
     args = ap.parse_args()
-
-    global VREF
     VREF = args.vref
 
     spi = spidev.SpiDev()
