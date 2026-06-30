@@ -1,1 +1,4 @@
 .env
+buffer.db
+__pycache__/
+*.pyc
