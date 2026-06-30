@@ -1,0 +1,4 @@
+# Force Unix line endings for files that run on the Pi (Linux).
+# Prevents "/bin/bash^M: bad interpreter" and Python parse errors.
+*.sh text eol=lf
+*.py text eol=lf
