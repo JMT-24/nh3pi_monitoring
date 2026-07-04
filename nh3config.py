@@ -61,6 +61,16 @@ PH_SLOPE = _f("PH_SLOPE", "3.5")
 
 DS18B20_DISCONNECTED_C = -127.0      # sentinel the backend recognises as offline
 
+# ---- Water level (JSN-SR04T ultrasonic, Trig/Echo mode) --------------------
+# Distance from the sensor down to the water surface, in cm (grows as the level
+# drops). ECHO is 5 V and MUST reach GPIO through a 5V->3.3V divider (see docs).
+# The backend owns the level baseline/marks (calibration); the Pi just measures.
+LEVEL_TRIG_PIN = _i("LEVEL_TRIG_PIN", 23)          # BCM (physical pin 16)
+LEVEL_ECHO_PIN = _i("LEVEL_ECHO_PIN", 24)          # BCM (physical pin 18) via divider
+LEVEL_MAX_DISTANCE_CM = _f("LEVEL_MAX_DISTANCE_CM", "100")  # sensor usable range
+LEVEL_SAMPLES = _i("LEVEL_SAMPLES", 5)             # median of N pings per read
+LEVEL_INVALID_CM = -1.0                            # sentinel: no valid echo
+
 # ---- Actuators / relay -----------------------------------------------------
 # BCM pin numbers. CHANGE THESE to match your wiring before driving anything.
 PUMP_PIN = _i("PUMP_PIN", 5)

@@ -27,17 +27,24 @@ _step = 0
 
 
 def fake_frame():
-    """NH3 triangle-ish sweep 0.34<->0.58 V so it crosses warn(0.40)/crit(0.50)."""
+    """
+    NH3 sweep ~1.48<->1.76 V so it crosses the DEFAULT calibration warn(1.56)/
+    crit(1.71) — watch the backend start/stop a water exchange. Water level
+    sweeps ~12<->18 cm around the 15 cm baseline so the drain/intake throttle
+    (pause outside the ±2 cm band) is exercised too.
+    """
     global _step
     _step += 1
-    nh3_v = 0.46 + 0.12 * math.sin(_step / 6.0)
+    nh3_v = 1.62 + 0.14 * math.sin(_step / 6.0)
     nh3_raw = round(nh3_v / (cfg.VREF / cfg.ADC_RESOLUTION), 1)
     ph = 7.2 + 0.1 * math.sin(_step / 9.0)
     temp_c = 28.0 + 0.5 * math.sin(_step / 11.0)
+    level_cm = 15.0 + 3.0 * math.sin(_step / 7.0)
     return {
         "nh3": {"raw": nh3_raw, "voltage": round(nh3_v, 4)},
         "ph": {"voltage": 2.5, "pH": round(ph, 2)},
         "waterTemp": {"tempC": round(temp_c, 2), "tempF": round(temp_c * 9 / 5 + 32, 1)},
+        "waterLevel": {"distanceCm": round(level_cm, 1)},
     }
 
 
