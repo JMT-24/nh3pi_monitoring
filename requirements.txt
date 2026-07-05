@@ -13,6 +13,7 @@ click==8.4.1
 colorzero==2.0
 gpiozero==2.0.1
 idna==3.18
+lgpio==0.2.2.0
 pyftdi==0.57.2
 pyserial==3.5
 python-dotenv==1.2.2

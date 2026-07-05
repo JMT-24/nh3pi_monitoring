@@ -26,6 +26,17 @@ _spi = None
 _temp_sensor = None
 _level_sensor = None
 
+# Print each device's init failure ONCE (not every frame) so a missing library
+# or unplugged sensor is visible in the log instead of silently degrading to a
+# sentinel value. Cleared implicitly on process restart.
+_warned = {"spi": False, "temp": False, "level": False}
+
+
+def _warn_once(key, msg):
+    if not _warned[key]:
+        print(f"[sensors] {msg}")
+        _warned[key] = True
+
 
 def _ensure_hardware():
     """
@@ -44,15 +55,19 @@ def _ensure_hardware():
             _spi = spidev.SpiDev()
             _spi.open(cfg.SPI_BUS, cfg.SPI_DEVICE)
             _spi.max_speed_hz = cfg.SPI_MAX_HZ
-        except Exception:
+        except Exception as e:
             _spi = None  # analog reads fall back to 0 V until the ADC is back
+            _warn_once("spi", f"MCP3008/SPI init failed ({e}); NH3/pH read 0 V until it recovers. "
+                              "Enable SPI (raspi-config) and check wiring.")
     if _temp_sensor is None:
         try:
             from w1thermsensor import W1ThermSensor
 
             _temp_sensor = W1ThermSensor()
-        except Exception:
+        except Exception as e:
             _temp_sensor = None  # read_temperature() reports the disconnect sentinel
+            _warn_once("temp", f"DS18B20 init failed ({e}); temp reports {cfg.DS18B20_DISCONNECTED_C}. "
+                               "If this says 'No module named w1thermsensor', run inside the venv.")
     if _level_sensor is None:
         try:
             from gpiozero import DistanceSensor
@@ -63,8 +78,10 @@ def _ensure_hardware():
                 trigger=cfg.LEVEL_TRIG_PIN,
                 max_distance=cfg.LEVEL_MAX_DISTANCE_CM / 100.0,
             )
-        except Exception:
+        except Exception as e:
             _level_sensor = None  # read_level() reports the invalid sentinel
+            _warn_once("level", f"JSN-SR04T init failed ({e}); water level = invalid. "
+                                "If this mentions edge detection, install lgpio (pip install lgpio).")
 
 
 def read_mcp3008(channel):

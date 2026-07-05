@@ -8,31 +8,38 @@ Raspberry Pi code for the **Automated Water Refill and Ammonia Nitrogen (NH3) Mo
 
 ```
 nh3_monitoring/
-├── main.py           # Live mode — reads real sensors and sends to backend
-├── main_demo.py      # Demo mode — sends fake data for testing without hardware
+├── controller.py     # Staging entrypoint — full control loop (sensors + buffer + control)
+├── sensors.py        # Sensor acquisition -> backend-shaped ingest frame
+├── actuators.py      # Relay control (pump/valve) + safety watchdog
+├── backend_client.py # POST /api/ingest and /api/ingest/batch (x-api-key)
+├── buffer.py         # Local SQLite offline buffer (replayed when back online)
+├── nh3config.py      # Central config (reads .env)
+├── main.py           # OLD simple sender (legacy — posts to /readings; do not use)
+├── main_demo.py      # Demo mode — fake data, no hardware
 ├── requirements.txt  # Python dependencies
-├── .env              # Your local secrets (never pushed)
-├── .gitignore
+├── .env              # Your local config/secrets (never pushed) — see .env.example
 └── archive/          # Old standalone sensor test scripts (not used in production)
-    ├── sensors/
-    │   ├── amonia_sensor.py
-    │   ├── ph_sensor.py
-    │   └── temperature.py
-    ├── actuators/
-    └── notifications/
 ```
 
 ---
 
 ## ⚙️ How It Works
 
-The Pi reads from three sensors every 30 seconds and sends **raw ADC values** to the backend via HTTP POST. Calibration math (pH conversion, NH3 ppm calculation) happens on the backend — not here.
+Each cycle (every `SEND_INTERVAL` seconds) `controller.py` reads all sensors into a
+backend-shaped frame, buffers it locally first, then POSTs it to `POST /api/ingest`
+with the `x-api-key` header. The backend echoes back the desired pump/valve command,
+which the Pi applies (with a local safety watchdog that forces OFF if commands stop
+arriving). Frames captured while offline are replayed to `/api/ingest/batch`.
 
-| Sensor | Module | Channel |
+Calibration/thresholds live on the **backend** (editable from the dashboard). The Pi
+only does light math (voltage, pH) — it does not compute NH3 ppm.
+
+| Sensor | Module | Interface |
 |---|---|---|
-| Temperature | DS18B20 (1-Wire) | — |
-| pH | PH-4502C via MCP3008 | CH0 |
-| Ammonia (NH3) | MQ137 via MCP3008 | CH2 |
+| Temperature | DS18B20 (waterproof) | 1-Wire on GPIO4 |
+| Water level | JSN-SR04T ultrasonic | TRIG GPIO23 / ECHO GPIO24 (via 5V→3.3V divider) |
+| Ammonia (NH3) | MQ137 | MCP3008 CH2 (SPI) |
+| pH | PH-4502C | MCP3008 CH0 (SPI) |
 
 ---
 
@@ -40,13 +47,13 @@ The Pi reads from three sensors every 30 seconds and sends **raw ADC values** to
 
 | Component | Specification |
 |---|---|
-| Raspberry Pi | Pi 4 (4GB recommended) |
-| MQ137 NH3 Sensor | Ammonia gas sensor module |
-| pH Sensor Kit | PH-4502C with probe |
-| DS18B20 | Waterproof temperature sensor |
-| MCP3008 | ADC converter (SPI) |
-| Relay Module | 4-channel 5V |
-| Water Pump | 12V submersible |
+| Raspberry Pi | Pi 4 / Pi 5 |
+| MQ137 NH3 Sensor | Ammonia gas sensor module → MCP3008 CH2 |
+| pH Sensor Kit | PH-4502C with probe → MCP3008 CH0 |
+| DS18B20 | Waterproof temp sensor (needs 4.7kΩ pull-up on DATA→3.3V) |
+| JSN-SR04T | Ultrasonic water-level sensor (ECHO needs a 5V→3.3V divider) |
+| MCP3008 | ADC converter (SPI); VDD/VREF wired to **3.3V** |
+| Relay Module | 4-channel 5V (IN1=GPIO17 pump, IN2=GPIO27 valve) |
 
 ---
 
@@ -58,34 +65,48 @@ git clone https://github.com/JMT-24/nh3pi_monitoring.git
 cd nh3pi_monitoring
 ```
 
-### 2. Install dependencies
+### 2. Create + activate a virtualenv, then install dependencies
 ```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
+> ⚠️ Always run inside the venv. Running with the system Python misses
+> `w1thermsensor` (temp reads `-127`) and other libs.
 
-### 3. Create your `.env` file
-```bash
-nano .env
-```
-Add:
-```
-BACKEND_URL=http://your-backend-url/readings
-```
+> **lgpio note:** `gpiozero`'s `DistanceSensor` (water level) needs the **lgpio**
+> pin factory on Pi OS Bookworm/Pi 5 — RPi.GPIO's edge detection fails there. If the
+> pip build can't find the library, install its build deps first:
+> `sudo apt install -y swig python3-dev liblgpio-dev`, then `pip install lgpio`.
 
-### 4. Enable SPI on the Pi
+### 3. Enable SPI + 1-Wire
 ```bash
 sudo raspi-config
-# Interface Options → SPI → Enable
+# Interface Options → SPI    → Enable
+# Interface Options → 1-Wire → Enable
+sudo reboot
 ```
+
+### 4. Create your `.env` file
+```bash
+cp .env.example .env
+nano .env
+```
+Set at minimum:
+```
+BACKEND_URL=http://<backend-ip>:4000     # base URL only — NO /readings path
+INGEST_API_KEY=<must match the backend's INGEST_API_KEY>
+```
+Wiring-dependent values (`VREF=3.3`, `PUMP_PIN=17`, `VALVE_PIN=27`) already default
+correctly in `.env.example`.
 
 ### 5. Run
 ```bash
-# Live mode (real sensors)
-python main.py
-
-# Demo mode (fake data, no hardware needed)
-python main_demo.py
+source venv/bin/activate      # if not already active
+python controller.py
 ```
+Look for `[OK]` lines. `[OFFLINE]` = can't reach the backend (check IP/port/firewall);
+`HTTP 401` = the API key doesn't match the backend.
 
 ---
 
@@ -100,14 +121,17 @@ crontab -e
 
 ---
 
-## 📦 Dependencies
+## 📦 Key Dependencies
 
 ```
-requests
-python-dotenv
-w1thermsensor
-spidev
+requests          # HTTP to the backend
+python-dotenv     # .env loading
+spidev            # MCP3008 (NH3 + pH)
+w1thermsensor     # DS18B20 temperature (1-Wire)
+gpiozero          # relays + JSN-SR04T level sensor
+lgpio             # pin factory gpiozero needs for edge detection (Bookworm/Pi 5)
 ```
+Full pinned list in `requirements.txt`.
 
 ---
 

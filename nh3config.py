@@ -44,7 +44,10 @@ SEND_INTERVAL = _i("SEND_INTERVAL", 30)            # seconds between sensor fram
 BACKFILL_BATCH = _i("BACKFILL_BATCH", 50)          # max buffered rows per replay
 
 # ---- ADC / sensors ---------------------------------------------------------
-VREF = _f("VREF", "5.0")
+# VREF must match how the MCP3008 VDD/VREF pins are wired. Ours go to the Pi's
+# 3.3V rail (see the pinout), so the raw->voltage math uses 3.3, NOT 5.0. Set to
+# 5.0 only if you rewire VREF to a 5V source.
+VREF = _f("VREF", "3.3")
 ADC_RESOLUTION = 1023.0          # MCP3008 is 10-bit
 SPI_BUS = 0
 SPI_DEVICE = 0
@@ -72,9 +75,11 @@ LEVEL_SAMPLES = _i("LEVEL_SAMPLES", 5)             # median of N pings per read
 LEVEL_INVALID_CM = -1.0                            # sentinel: no valid echo
 
 # ---- Actuators / relay -----------------------------------------------------
-# BCM pin numbers. CHANGE THESE to match your wiring before driving anything.
-PUMP_PIN = _i("PUMP_PIN", 5)
-VALVE_PIN = _i("VALVE_PIN", 6)
+# BCM pin numbers, matching the wired relay board: IN1 (pump/drain) -> GPIO17
+# (physical pin 11), IN2 (valve/intake) -> GPIO27 (physical pin 13). IN3/IN4
+# (GPIO22/GPIO5) are spares. Change these only if you rewire the relay inputs.
+PUMP_PIN = _i("PUMP_PIN", 17)
+VALVE_PIN = _i("VALVE_PIN", 27)
 # Most cheap relay boards are ACTIVE-LOW (GPIO low = relay energised / load ON).
 RELAY_ACTIVE_LOW = _b("RELAY_ACTIVE_LOW", True)
 
