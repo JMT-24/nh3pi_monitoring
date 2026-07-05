@@ -49,6 +49,28 @@ def _gateway_meta():
     return {"fw": cfg.FW_VERSION, "ip": _local_ip()}
 
 
+def _fmt_frame(frame):
+    """One readable block showing every sensor value the Pi is sending."""
+    nh3 = frame["nh3"]
+    ph = frame["ph"]
+    temp = frame["waterTemp"]
+    level = frame["waterLevel"]["distanceCm"]
+
+    temp_str = (
+        "DISCONNECTED" if temp["tempC"] == cfg.DS18B20_DISCONNECTED_C
+        else f"{temp['tempC']}C / {temp['tempF']}F"
+    )
+    level_str = (
+        "INVALID (no echo / out of range)" if level <= 0 else f"{level} cm to surface"
+    )
+    return (
+        f"   NH3   : {nh3['voltage']} V  (raw {nh3['raw']}/1023)\n"
+        f"   pH    : {ph['pH']}  ({ph['voltage']} V)\n"
+        f"   Temp  : {temp_str}\n"
+        f"   Level : {level_str}"
+    )
+
+
 def _sleep_with_watchdog(seconds):
     """Sleep in 1s steps so the actuator safety watchdog stays responsive."""
     end = time.monotonic() + seconds
@@ -100,12 +122,11 @@ def main():
                 actuators.apply_command(command)
                 buffer.mark_synced([row_id])
                 _flush_backlog(exclude_id=None)
-                print(f"[OK] {ts}  nh3={frame['nh3']['voltage']}V "
-                      f"pH={frame['ph']['pH']} temp={frame['waterTemp']['tempC']}C")
+                print(f"[OK] {ts}\n{_fmt_frame(frame)}")
             else:
                 # Offline: watchdog will force actuators off if a refill was live.
                 print(f"[OFFLINE] buffered frame #{row_id} "
-                      f"({buffer.count_pending()} pending)")
+                      f"({buffer.count_pending()} pending)\n{_fmt_frame(frame)}")
 
             _sleep_with_watchdog(cfg.SEND_INTERVAL)
 
