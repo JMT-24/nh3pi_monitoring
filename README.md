@@ -7,19 +7,28 @@ Raspberry Pi code for the **Automated Water Refill and Ammonia Nitrogen (NH3) Mo
 ## 📁 Project Structure
 
 ```
-nh3_monitoring/
-├── controller.py     # Staging entrypoint — full control loop (sensors + buffer + control)
-├── sensors.py        # Sensor acquisition -> backend-shaped ingest frame
-├── actuators.py      # Relay control (pump/valve) + safety watchdog
-├── backend_client.py # POST /api/ingest and /api/ingest/batch (x-api-key)
-├── buffer.py         # Local SQLite offline buffer (replayed when back online)
-├── nh3config.py      # Central config (reads .env)
-├── main.py           # OLD simple sender (legacy — posts to /readings; do not use)
-├── main_demo.py      # Demo mode — fake data, no hardware
-├── requirements.txt  # Python dependencies
-├── .env              # Your local config/secrets (never pushed) — see .env.example
-└── archive/          # Old standalone sensor test scripts (not used in production)
+nh3pi_monitoring/
+├── controller.py       # ▶ Staging entrypoint — the real control loop (run this)
+├── controller_demo.py  # ▶ Hardware-free demo of the full pipeline (run this to test)
+├── sensors.py          # Sensor acquisition -> backend-shaped ingest frame
+├── actuators.py        # Relay control (pump/valve) + safety watchdog
+├── backend_client.py   # POST /api/ingest and /api/ingest/batch (x-api-key)
+├── buffer.py           # Local SQLite offline buffer (replayed when back online)
+├── nh3config.py        # Central config (reads .env)
+├── tests/
+│   └── test_mcp3008_nh3.py  # MCP3008 + MQ137 wiring check (--scan, --warmup, --vref)
+├── gitpull.sh          # Cron auto-pull script
+├── main.py             # ⛔ LEGACY — old /readings contract; refuses to run
+├── main_demo.py        # ⛔ LEGACY — old contract + response schema; refuses to run
+├── requirements.txt    # Python dependencies
+├── .env                # Your local config/secrets (never pushed) — see .env.example
+└── archive/            # Old standalone scripts — reference only (see archive/README.md)
 ```
+
+> **`main.py` and `main_demo.py` are dead.** They speak the original `/readings` contract,
+> which the backend no longer exposes — every frame would 404/401, with no actuator
+> control, no offline buffer and no safety watchdog. Both now exit with a pointer rather
+> than pretending to work. Use `controller.py` / `controller_demo.py`.
 
 ---
 
@@ -112,12 +121,24 @@ Look for `[OK]` lines. `[OFFLINE]` = can't reach the backend (check IP/port/fire
 
 ## 🔄 Auto-Update via Cron
 
-This Pi is configured to auto-pull from GitHub every 5 minutes so changes pushed from a laptop are applied automatically — no SSH needed.
+The Pi auto-pulls from GitHub every 5 minutes, so code pushed from a laptop lands without SSH.
 
 ```bash
 crontab -e
-# */5 * * * * /home/nh3/nh3_monitoring/git_pull.sh
+# */5 * * * * /home/nh3/nh3pi_monitoring/gitpull.sh >> /home/nh3/gitpull.log 2>&1
 ```
+
+Use the **real path to your clone** — `gitpull.sh` resolves the repo from its own location,
+so it works wherever the repo lives, but cron still needs the correct path to the script.
+
+> ⚠️ **This only updates files on disk — it does NOT restart `controller.py`.** A running
+> loop keeps executing the old code until you restart it. If you want true auto-apply, run
+> the loop under systemd and have the pull restart the unit:
+> ```bash
+> # in gitpull.sh, after `git pull`:
+> #   sudo systemctl restart nh3-controller
+> ```
+> A systemd unit is also what restarts the loop if it ever exits — cron does not.
 
 ---
 

@@ -57,17 +57,13 @@ def mark_synced(ids):
     _db().commit()
 
 
-def pending(limit=None, exclude_id=None):
+def pending(limit=None):
     """Oldest-first pending rows as [{id, ts, frame(dict)}], for backfill."""
     limit = limit or cfg.BACKFILL_BATCH
-    sql = "SELECT id, ts, frame FROM frames WHERE synced = 0"
-    params = []
-    if exclude_id is not None:
-        sql += " AND id != ?"
-        params.append(exclude_id)
-    sql += " ORDER BY id ASC LIMIT ?"
-    params.append(limit)
-    rows = _db().execute(sql, params).fetchall()
+    rows = _db().execute(
+        "SELECT id, ts, frame FROM frames WHERE synced = 0 ORDER BY id ASC LIMIT ?",
+        (limit,),
+    ).fetchall()
     return [{"id": r["id"], "ts": r["ts"], "frame": json.loads(r["frame"])} for r in rows]
 
 
@@ -75,9 +71,38 @@ def count_pending():
     return _db().execute("SELECT COUNT(*) AS n FROM frames WHERE synced = 0").fetchone()["n"]
 
 
-def prune(keep_synced=5000):
-    """Optional housekeeping: drop the oldest already-synced rows."""
-    _db().execute(
+def drop(ids):
+    """
+    Discard rows outright. Used for frames the backend has permanently REJECTED (e.g. an
+    implausible timestamp): keeping them would block the head of the backlog forever,
+    since pending() always returns the oldest rows first.
+    """
+    if not ids:
+        return
+    qs = ",".join("?" * len(ids))
+    _db().execute(f"DELETE FROM frames WHERE id IN ({qs})", list(ids))
+    _db().commit()
+
+
+def prune(keep_synced=None, max_pending=None):
+    """
+    Housekeeping — MUST be called periodically (controller.py does, once per cycle).
+
+    This existed but was never called, so the buffer grew ~2,880 rows/day forever. The
+    end state was a full SD card: enqueue() then raised OperationalError, which escaped
+    the control loop and killed the process — and nothing restarts it, so the tank went
+    unmonitored.
+
+    Two ceilings:
+      * keep_synced  — already-shipped rows are pure history; keep a recent window.
+      * max_pending  — a backend that never accepts (e.g. a wrong API key) means rows are
+                       never marked synced and never become prunable. Dropping the oldest
+                       loses some history; filling the disk loses monitoring entirely.
+    """
+    keep_synced = cfg.BUFFER_KEEP_SYNCED if keep_synced is None else keep_synced
+    max_pending = cfg.BUFFER_MAX_PENDING if max_pending is None else max_pending
+    conn = _db()
+    conn.execute(
         """
         DELETE FROM frames WHERE synced = 1 AND id NOT IN (
             SELECT id FROM frames WHERE synced = 1 ORDER BY id DESC LIMIT ?
@@ -85,7 +110,19 @@ def prune(keep_synced=5000):
         """,
         (keep_synced,),
     )
-    _db().commit()
+    dropped = conn.execute(
+        """
+        DELETE FROM frames WHERE synced = 0 AND id NOT IN (
+            SELECT id FROM frames WHERE synced = 0 ORDER BY id DESC LIMIT ?
+        )
+        """,
+        (max_pending,),
+    ).rowcount
+    conn.commit()
+    if dropped and dropped > 0:
+        print(f"[buffer] WARNING: dropped {dropped} unsent frame(s) - backlog exceeded "
+              f"{max_pending}. Is the backend rejecting our frames (check INGEST_API_KEY)?")
+    return dropped or 0
 
 
 def close():

@@ -38,7 +38,13 @@ except ImportError:
 
 # ---- Config -----------------------------------------------------------------
 NH3_CHANNEL = 2          # MQ137 analog out -> MCP3008 CH2
-VREF = 5.0               # MCP3008 reference voltage (set to your actual VREF)
+# MUST match how the MCP3008's VDD/VREF pins are actually wired, and therefore the
+# production default in nh3config.py. This used to default to 5.0 while the real rig
+# (and nh3config, .env.example, and the README) all use 3.3 — so a tech running this
+# without --vref read ~1.52 V in clean air and entered that as the dashboard baseline,
+# while the controller reported ~1.00 V for the same air. Every NH3 threshold ended up
+# off by a 1.515x factor and the water exchange would never trigger.
+VREF = 3.3
 ADC_RESOLUTION = 1023.0  # 10-bit ADC -> 0..1023
 NUM_SAMPLES = 10
 SAMPLE_DELAY = 0.05      # seconds between samples within one averaged read
@@ -134,7 +140,8 @@ def main():
     ap.add_argument("--warmup", action="store_true", help="65s MQ137 warm-up before reading")
     ap.add_argument("--vref", type=float, default=VREF,
                     help="ADC reference voltage = the chip's VDD rail (3.3 or 5.0). "
-                         "Use 3.3 if you wired VDD/VREF to the 3.3V pin. Default %(default)s")
+                         "The default matches nh3config.py; only override it if you "
+                         "rewire VDD/VREF. Default %(default)s")
     args = ap.parse_args()
     VREF = args.vref
 

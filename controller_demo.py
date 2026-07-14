@@ -61,16 +61,26 @@ def main():
             live["actuators"] = actuators.state()
             live["gateway"] = {"fw": cfg.FW_VERSION, "ip": "127.0.0.1"}
 
-            command = client.send_live(live)
-            if command is not None:
-                actuators.apply_command(command)
+            # Mirrors controller.py's contract with backend_client: send_live returns a
+            # Result (never None), and backfill returns an (accepted, skipped) tuple.
+            # Testing those the old way was actively harmful: `if command is not None`
+            # is always true for a Result, and `(False, 0)` is a NON-EMPTY tuple and
+            # therefore truthy — so a failed backfill marked every pending frame synced
+            # and prune() then deleted frames that had never reached the backend.
+            result = client.send_live(live)
+            if result.ok:
+                actuators.apply_command(result.command)
                 buffer.mark_synced([row_id])
                 items = buffer.pending()
-                if items and client.backfill(items):
-                    buffer.mark_synced([it["id"] for it in items])
-                    print(f"  backfilled {len(items)}")
-                print(f"[OK] nh3={frame['nh3']['voltage']}V -> pump={command.get('pump')} "
-                      f"valve={command.get('valve')}")
+                if items:
+                    accepted, skipped = client.backfill(items)
+                    if accepted:
+                        buffer.mark_synced([it["id"] for it in items])
+                        print(f"  backfilled {len(items) - skipped}")
+                print(f"[OK] nh3={frame['nh3']['voltage']}V -> "
+                      f"pump={result.command.get('pump')} valve={result.command.get('valve')}")
+            elif result.status == client.REJECTED:
+                print(f"[REJECTED] {result.detail}")
             else:
                 print(f"[OFFLINE] buffered #{row_id} ({buffer.count_pending()} pending)")
 

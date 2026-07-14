@@ -40,7 +40,11 @@ def read_nh3():
 		return avg_raw, voltage, None, None
 
 	rs = ((VREF - voltage) / voltage) * RL
-	ratio * rs / RO
+	# Was `ratio * rs / RO` — an expression whose result was discarded, so `ratio`
+	# stayed 0 and `A * (0 ** -2.473)` raised ZeroDivisionError on every read.
+	ratio = rs / RO
+	if ratio <= 0:
+		return avg_raw, voltage, rs, None
 
 	ppm = A * (ratio ** B)
 	ppm = max(0.0, ppm)
@@ -72,15 +76,17 @@ def main():
 
 			if rs is None:
 				print("Voltage: 0.0000 V | Sensor not connected or no signal")
+			elif ppm is None:
+				print(f"Raw: {avg_raw:6.1f} | Voltage: {voltage:.3f} V | Rs: {rs:.2f} k | NH3: --")
 			else:
 				print(
 					f"Raw: {avg_raw:6.1f} | "
 					f"Voltage: {voltage:.3f} V | "
-					f"Rs: {rs:.2f} ppm"
+					f"Rs: {rs:.2f} k | "
 					f"NH3: {ppm:.2f} ppm"
 				)
 
-			time.sleep(2000)
+			time.sleep(2)  # was 2000 (33 minutes) — almost certainly a typo for 2.0
 
 	except KeyboardInterrupt:
 		print("stopped")
